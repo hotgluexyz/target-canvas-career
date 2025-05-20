@@ -16,6 +16,17 @@ pipx install git+https://github.com/hotgluexyz/target-canvas-career.git
 
 ### Accepted Config Options
 
+Create a config file containing the Canvas API credentials, e.g.:
+
+```json
+{
+  "base_url": "xxxx.cd.instructure.com",
+  "account_id": "self",
+  "client_id": "xxxxxxxxxxxxxxxxxxxxxxxx",
+  "client_secret": "xxxxxxxxxxxxxxxx"
+}
+```
+
 A full list of supported settings and capabilities for this
 target is available by running:
 
