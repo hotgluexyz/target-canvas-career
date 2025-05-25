@@ -56,7 +56,16 @@ class ImportSink(CanvasCareerSink):
         response = self.request_api(
             "POST", endpoint=self.endpoint, request_data=record, params=params
         )
-        return response.json()["id"], True, state_updates
+        import_id = response.json()["id"]
+
+        # check if the import completed without errors
+        import_status = self.request_api(
+            "GET", endpoint=f"{self.endpoint}/{import_id}"
+        )
+        if import_status.json().get("processing_warnings"):
+            raise Exception(f"Import {import_id} failed with warnings: {import_status.json()['processing_warnings']}")
+        
+        return import_id, True, state_updates
 
     
     @backoff.on_exception(
