@@ -3,15 +3,10 @@
 from __future__ import annotations
 from target_canvas_career.client import CanvasCareerSink
 import requests
-from io import StringIO
-import csv
 import backoff
 import requests
-import json
-from typing import Any, Dict, Optional
-from singer_sdk.exceptions import FatalAPIError, RetriableAPIError
-from target_hotglue.auth import Authenticator
-from target_hotglue.common import HGJSONEncoder
+from singer_sdk.exceptions import RetriableAPIError
+import time
 
 
 class ImportSink(CanvasCareerSink):
@@ -58,10 +53,15 @@ class ImportSink(CanvasCareerSink):
         )
         import_id = response.json()["id"]
 
-        # check if the import completed without errors
-        import_status = self.request_api(
-            "GET", endpoint=f"{self.endpoint}/{import_id}"
-        )
+        import_status_json = {}
+        while import_status_json.get("progress") != 100:
+            time.sleep(3)
+            import_status = self.request_api(
+                "GET", endpoint=f"{self.endpoint}/{import_id}"
+            )
+            self.logger.info(f"Import {import_id} is not complete, waiting for completion...")
+            import_status_json = import_status.json()
+
         if import_status.json().get("processing_warnings"):
             raise Exception(f"Import {import_id} failed with warnings: {import_status.json()['processing_warnings']}")
         
