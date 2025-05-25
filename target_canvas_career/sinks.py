@@ -81,15 +81,12 @@ class ImportSink(CanvasCareerSink):
         url = self.url(endpoint)
         headers.update(self.http_headers)
         params.update(self.params)
+        if request_data:
+            with open(request_data['path'], "rb") as f:
+                file_data = f.read()
+        else:
+            file_data = None
 
-        with open(request_data['path'], "rb") as f:
-            file_data = f.read()
-
-        with open(request_data['path'], 'rb') as f:
-            files = {
-                'attachment': f
-            }
-
-        response = requests.post(url, headers=headers, params=params, data=file_data)
+        response = requests.request(http_method, url, headers=headers, params=params, data=file_data)
         self.validate_response(response)
         return response
