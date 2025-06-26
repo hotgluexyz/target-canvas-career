@@ -27,12 +27,6 @@ class ImportSink(CanvasCareerSink):
     def endpoint(self):
         return f"{self.base_endpoint}/sis_imports"
 
-    @property
-    def http_headers(self):
-        headers = super().http_headers
-        headers["Content-Type"] = "application/octet-stream"
-        return headers
-
     def preprocess_record(self, record: dict, context: dict) -> None:
         # Validate attachment exists in record
         if "attachment" not in record:
@@ -52,9 +46,14 @@ class ImportSink(CanvasCareerSink):
             raise Exception(record.get("error"))
 
         params = {"import_type": "instructure_csv", "extension": "zip"}
+        headers = {"Content-Type": "application/octet-stream"}
 
         response = self.request_api(
-            "POST", endpoint=self.endpoint, request_data=record, params=params
+            "POST",
+            endpoint=self.endpoint,
+            request_data=record,
+            params=params,
+            headers=headers,
         )
         import_id = response.json()["id"]
 
@@ -74,38 +73,39 @@ class ImportSink(CanvasCareerSink):
         provisioning_report_json = self.poll_report_completion(
             provisioning_report_id, endpoint=provisioning_report_path
         )
+        if not provisioning_report_json.get("file_url"):
+            raise Exception(
+                f"Report {provisioning_report_id} to endpoint {provisioning_report_path} failed to generate provisioning report. Error: {provisioning_report_json}"
+            )
 
         # get user uuids from provisioning report
-        report_url = provisioning_report_json.get("file_url")
-        # read report url and get user uuids
-        response = requests.get(report_url)
-        csv_content = response.content.decode("utf-8")
-        user_uuids = csv.DictReader(csv_content.splitlines())
-        self._target.user_uuids = user_uuids
+        self.get_user_uuids(provisioning_report_json["file_url"])
 
-        # check if any user failed to import
-        for user in user_uuids:
-            if user.get("status") == "failed":
-                raise Exception(f"User {user.get('user_id')} failed to import")
-
+        if self.warnings:
+            return import_id, False, {"error": self.warnings}
         return import_id, True, state_updates
 
+    def get_user_uuids(self, report_url: str) -> None:
+        # get user uuids from provisioning report
+        # read report url and get user uuids
+        response = requests.get(report_url, headers=self.http_headers)
+        csv_content = response.content.decode("utf-8")
+        user_uuids = list(csv.DictReader(csv_content.splitlines()))
+        # get only user id and uuid
+        user_uuids = {user["user_id"]: user["uuid"] for user in user_uuids}
+        self._target.user_uuids = user_uuids
+
     def create_provisioning_report(self, provisioning_report_path: str) -> dict:
-        request_data = MultipartEncoder(
-            fields={
-                "parameters[include_deleted]": "false",
-                "parameters[skip_message]": "true",
-                "parameters[users]": "true",
-            }
-        )
-        headers = {
-            "Content-Type": request_data.content_type,
+        request_data = {
+            "parameters[include_deleted]": (None, "false"),
+            "parameters[users]": (None, "true"),
+            "parameters[skip_message]": (None, "true"),
         }
+
         provisioning_report = self.request_api(
             "POST",
             endpoint=provisioning_report_path,
-            request_data=request_data,
-            headers=headers,
+            files=request_data,
         )
         return provisioning_report.json()["id"]
 
@@ -125,6 +125,28 @@ class ImportSink(CanvasCareerSink):
             import_status_json = import_status.json()
         return import_status_json
 
+    def request_api(
+        self,
+        http_method,
+        endpoint=None,
+        params={},
+        request_data=None,
+        headers={},
+        verify=True,
+        files=None,
+    ):
+        """Request records from REST endpoint(s), returning response records."""
+        resp = self._request(
+            http_method,
+            endpoint,
+            params,
+            request_data,
+            headers,
+            verify=verify,
+            files=files,
+        )
+        return resp
+
     @backoff.on_exception(
         backoff.expo,
         (RetriableAPIError, requests.exceptions.ReadTimeout),
@@ -139,12 +161,14 @@ class ImportSink(CanvasCareerSink):
         request_data=None,
         headers={},
         verify=True,
+        files=None,
     ) -> requests.PreparedRequest:
         """Prepare a request object."""
         url = self.url(endpoint)
         headers.update(self.http_headers)
         params.update(self.params)
 
+        # needed to send the zip file data
         if isinstance(request_data, dict) and "path" in request_data:
             with open(request_data["path"], "rb") as f:
                 file_data = f.read()
@@ -152,7 +176,12 @@ class ImportSink(CanvasCareerSink):
             file_data = request_data
 
         response = requests.request(
-            http_method, url, headers=headers, params=params, data=file_data
+            http_method,
+            url,
+            headers=headers,
+            params=params,
+            data=file_data,
+            files=files,
         )
         self.validate_response(response)
         return response
@@ -165,6 +194,11 @@ class MetadataSink(CanvasCareerGraphQLSink):
     warnings = []
 
     @property
+    def url_base(self) -> str:
+        """Return the API URL base, defaulting to the standard REST API base."""
+        return self.config.get("metadata_service_tenant")
+
+    @property
     def endpoint(self):
         return f"/graphql"
 
@@ -173,24 +207,26 @@ class MetadataSink(CanvasCareerGraphQLSink):
         if record.get("user_id") and not record.get("canvasUserUuid"):
             canvas_user_uuid = self._target.user_uuids.get(record["user_id"])
             if not canvas_user_uuid:
-                raise Exception(
-                    f"User {record.get('user_id')} not found in provisioning report"
-                )  # TODO: add error to state_updates
+                return {
+                    "externalId": record["user_id"],
+                    "error": f"User {record.get('user_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
+                }
 
         if record.get("metadata_leader_id") and not record.get("leaderCanvasUserUuid"):
             leader_canvas_user_uuid = self._target.user_uuids.get(
                 record["metadata_leader_id"]
             )
             if not leader_canvas_user_uuid:
-                raise Exception(
-                    f"User {record.get('metadata_leader_id')} not found in provisioning report"
-                )
+                return {
+                    "externalId": record["user_id"],
+                    "error": f"User {record.get('metadata_leader_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
+                }
 
         # build payload
         payload = {
             "canvasRootAccountUuid": record.get("canvasRootAccountUuid"),
-            "canvasUserUuid": record.get("canvasUserUuid"),
-            "leaderCanvasUserUuid": record.get("leaderCanvasUserUuid"),
+            "canvasUserUuid": canvas_user_uuid,
+            "leaderCanvasUserUuid": leader_canvas_user_uuid,
             "metadata": [
                 {"key": "organization", "value": record.get("organization")},
                 {"key": "department", "value": record.get("department")},
@@ -207,32 +243,65 @@ class MetadataSink(CanvasCareerGraphQLSink):
             self.logger.info(f"No records to process")
             return
 
-        payload = """
+        failed_records = [record for record in records if record.get("error")]
+        payload_records = [record for record in records if not record.get("error")]
+
+        query = """
         mutation BulkUpsertMetadata{
             bulkUpsertMetadata(input: {
                 users: __records__
             }) {
                 users {
                     id
+                    canvasUserUuid
                 }
             }
         }
         """
 
-        payload = payload.replace("__records__", json.dumps(records))
+        query = query.replace("__records__", self.to_graphql_input(payload_records))
+        query = " ".join(query.strip().split())
 
         invoicebatch_response = self.request_api(
-            "POST", endpoint=self.endpoint, request_data=payload
+            "POST", endpoint=self.endpoint, request_data={"query": query}
         )
-        return invoicebatch_response
+        return failed_records, invoicebatch_response
 
-    def handle_batch_response(self, response) -> dict:
+    def handle_batch_response(self, failed_records, response) -> dict:
+        state = []
+
+        for failed_record in failed_records:
+            state.append(
+                {
+                    "success": False,
+                    "error": failed_record.get("error"),
+                    "externalId": failed_record.get("externalId"),
+                }
+            )
+
         response_json = response.json()
-        if response.status_code == 201:
-            state = []
-            for user in []:
+        if response.status_code == 200:
+            for user in (
+                response_json.get("data", {})
+                .get("bulkUpsertMetadata", {})
+                .get("users", [])
+            ):
                 # create state for each user
-                state.append({})
+                uuid = user.get("canvasUserUuid")
+                state.append(
+                    {
+                        "id": uuid,
+                        "success": True,
+                        "externalId": next(
+                            (
+                                k
+                                for k, v in self._target.user_uuids.items()
+                                if v == uuid
+                            ),
+                            None,
+                        ),
+                    }
+                )
             return {"state_updates": state}
         else:
             return {
