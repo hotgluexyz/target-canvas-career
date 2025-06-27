@@ -10,7 +10,8 @@ from pathlib import PurePath
 from singer_sdk.sinks import Sink
 
 from target_canvas_career.sinks import (
-    ImportSink
+    ImportSink,
+    MetadataSink
 )
 
 
@@ -29,7 +30,7 @@ class TargetCanvasCareer(TargetHotglue):
 
     name = "target-canvas-career"
 
-    SINK_TYPES = [ImportSink]
+    SINK_TYPES = [ImportSink, MetadataSink]
     MAX_PARALLELISM = 1
 
     config_jsonschema = th.PropertiesList(
@@ -37,10 +38,16 @@ class TargetCanvasCareer(TargetHotglue):
         th.Property("client_id",th.StringType,required=True),
         th.Property("client_secret",th.StringType,required=True),
         th.Property("account_id",th.StringType,required=False, default="self"),
+        th.Property("metadata_service_tenant",th.StringType,required=True),
+        th.Property("metadata_service_token",th.StringType,required=True),
     ).to_dict()
 
     def get_sink_class(self, stream_name: str) -> Type[Sink]:
         """Get sink for a stream."""
+        for sink_class in self.SINK_TYPES:
+            # Search for streams with multiple names
+            if stream_name.lower() == sink_class.name:
+                return sink_class
         return ImportSink
 
 if __name__ == "__main__":
