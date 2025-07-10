@@ -204,6 +204,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
 
     def process_batch_record(self, record: dict, context: dict) -> dict:
         # get user uuids from if not passed
+        canvas_user_uuid = None
         if record.get("user_id") and not record.get("canvasUserUuid"):
             canvas_user_uuid = self._target.user_uuids.get(record["user_id"])
             if not canvas_user_uuid:
@@ -212,6 +213,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
                     "error": f"User {record.get('user_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
                 }
 
+        leader_canvas_user_uuid = None
         if record.get("metadata_leader_id") and not record.get("leaderCanvasUserUuid"):
             leader_canvas_user_uuid = self._target.user_uuids.get(
                 record["metadata_leader_id"]
