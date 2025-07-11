@@ -203,11 +203,11 @@ class MetadataSink(CanvasCareerGraphQLSink):
         return f"/graphql"
 
     def process_batch_record(self, record: dict, context: dict) -> dict:
-        canvas_user_uuid = None
-        leader_canvas_user_uuid = None
+        canvas_user_uuid = record.get("canvasUserUuid")
+        leader_canvas_user_uuid = record.get("leaderCanvasUserUuid")
 
         # get user uuids from user_uuids if not passed
-        if record.get("user_id") and not record.get("canvasUserUuid"):
+        if record.get("user_id") and not canvas_user_uuid:
             canvas_user_uuid = self._target.user_uuids.get(record["user_id"])
         
         # we can't send metadata without the user uuid
@@ -218,7 +218,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
             }
 
         # get metadata leader uuids from user_uuids if not passed
-        if record.get("metadata_leader_id") and not record.get("leaderCanvasUserUuid"):
+        if record.get("metadata_leader_id") and not leader_canvas_user_uuid:
             leader_canvas_user_uuid = self._target.user_uuids.get(
                 record["metadata_leader_id"]
             )
