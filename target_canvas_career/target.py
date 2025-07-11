@@ -32,6 +32,7 @@ class TargetCanvasCareer(TargetHotglue):
 
     SINK_TYPES = [ImportSink, MetadataSink]
     MAX_PARALLELISM = 1
+    user_uuids = {}
 
     config_jsonschema = th.PropertiesList(
         th.Property("base_url",th.StringType,required=True),
