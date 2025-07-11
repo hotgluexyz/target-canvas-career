@@ -203,15 +203,21 @@ class MetadataSink(CanvasCareerGraphQLSink):
         return f"/graphql"
 
     def process_batch_record(self, record: dict, context: dict) -> dict:
-        # get user uuids from if not passed
+        canvas_user_uuid = None
+        leader_canvas_user_uuid = None
+
+        # get user uuids from user_uuids if not passed
         if record.get("user_id") and not record.get("canvasUserUuid"):
             canvas_user_uuid = self._target.user_uuids.get(record["user_id"])
-            if not canvas_user_uuid:
-                return {
-                    "externalId": record["user_id"],
-                    "error": f"User {record.get('user_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
-                }
+        
+        # we can't send metadata without the user uuid
+        if not canvas_user_uuid:
+             return {
+                "externalId": record["user_id"],
+                "error": f"User {record.get('user_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
+            }
 
+        # get metadata leader uuids from user_uuids if not passed
         if record.get("metadata_leader_id") and not record.get("leaderCanvasUserUuid"):
             leader_canvas_user_uuid = self._target.user_uuids.get(
                 record["metadata_leader_id"]
@@ -227,12 +233,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
             "canvasRootAccountUuid": record.get("canvasRootAccountUuid"),
             "canvasUserUuid": canvas_user_uuid,
             "leaderCanvasUserUuid": leader_canvas_user_uuid,
-            "metadata": [
-                {"key": "organization", "value": record.get("organization")},
-                {"key": "department", "value": record.get("department")},
-                {"key": "team", "value": record.get("team")},
-                {"key": "role", "value": record.get("role")},
-            ],
+            "metadata": [{"key": field, "value": record.get(field)} for field in ["organization", "department", "team", "role"] if record.get(field)],
         }
         return payload
 
@@ -261,10 +262,14 @@ class MetadataSink(CanvasCareerGraphQLSink):
 
         query = query.replace("__records__", self.to_graphql_input(payload_records))
         query = " ".join(query.strip().split())
+        
+        try:    
+            invoicebatch_response = self.request_api(
+                "POST", endpoint=self.endpoint, request_data={"query": query}
+            )
+        except Exception as e:
+            return failed_records, e.args[0]
 
-        invoicebatch_response = self.request_api(
-            "POST", endpoint=self.endpoint, request_data={"query": query}
-        )
         return failed_records, invoicebatch_response
 
     def handle_batch_response(self, failed_records, response) -> dict:
@@ -280,7 +285,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
             )
 
         response_json = response.json()
-        if response.status_code == 200:
+        if response.status_code == 200 and not "errors" in response_json:
             for user in (
                 response_json.get("data", {})
                 .get("bulkUpsertMetadata", {})
