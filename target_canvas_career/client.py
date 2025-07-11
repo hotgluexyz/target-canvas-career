@@ -11,7 +11,7 @@ from target_canvas_career.auth import CanvasCareerAuthenticator
 import requests
 import json
 import backoff
-from target_hotglue.rest import RetriableAPIError, HGJSONEncoder
+from target_hotglue.rest import RetriableAPIError, FatalAPIError
 
 
 class CanvasCareerSink(HotglueSink, RecordSink):
@@ -130,3 +130,10 @@ class CanvasCareerGraphQLSink(HotglueBatchSink):
             return "null"
         else:
             return str(value)
+
+    def validate_response(self, response: requests.Response) -> None:
+        """Validate HTTP response."""
+        if response.status_code in [429] or 500 <= response.status_code < 600:
+            raise RetriableAPIError(response)
+        elif 400 <= response.status_code < 500:
+            raise FatalAPIError(response)
