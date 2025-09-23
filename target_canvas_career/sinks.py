@@ -73,13 +73,13 @@ class ImportSink(CanvasCareerSink):
         provisioning_report_json = self.poll_report_completion(
             provisioning_report_id, endpoint=provisioning_report_path
         )
-        if not provisioning_report_json.get("file_url"):
+        if not provisioning_report_json.get("attachment", {}).get("url"):
             raise Exception(
                 f"Report {provisioning_report_id} to endpoint {provisioning_report_path} failed to generate provisioning report. Error: {provisioning_report_json}"
             )
 
         # get user uuids from provisioning report
-        self.get_user_uuids(provisioning_report_json["file_url"])
+        self.get_user_uuids(provisioning_report_json["attachment"]["url"])
 
         if self.warnings:
             return import_id, False, {"error": self.warnings}
