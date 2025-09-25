@@ -92,7 +92,7 @@ class ImportSink(CanvasCareerSink):
         csv_content = response.content.decode("utf-8")
         user_uuids = list(csv.DictReader(csv_content.splitlines()))
         # get only user id and uuid
-        user_uuids = {str(user["user_id"]): user["uuid"] for user in user_uuids}
+        user_uuids = {user["user_id"]: user["uuid"] for user in user_uuids}
         self._target.user_uuids = user_uuids
 
     def create_provisioning_report(self, provisioning_report_path: str) -> dict:
@@ -208,8 +208,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
 
         # get user uuids from user_uuids if not passed
         if record.get("user_id") and not canvas_user_uuid:
-            user_id = str(record["user_id"])
-            canvas_user_uuid = self._target.user_uuids.get(user_id)
+            canvas_user_uuid = self._target.user_uuids.get(record["user_id"])
         
         # we can't send metadata without the user uuid
         if not canvas_user_uuid:
