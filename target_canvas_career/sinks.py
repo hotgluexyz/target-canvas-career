@@ -228,6 +228,8 @@ class MetadataSink(CanvasCareerGraphQLSink):
                     "externalId": record["user_id"],
                     "error": f"User {record.get('metadata_leader_id')} not found in provisioning report, for more details check in import warnings why this user failed to import",
                 }
+            else:
+                leader_canvas_user_uuid = [leader_canvas_user_uuid]
 
         # build payload
         payload = {
