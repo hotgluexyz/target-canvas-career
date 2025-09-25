@@ -233,7 +233,7 @@ class MetadataSink(CanvasCareerGraphQLSink):
         payload = {
             "canvasRootAccountUuid": record.get("canvasRootAccountUuid"),
             "canvasUserUuid": canvas_user_uuid,
-            "leaderCanvasUserUuid": leader_canvas_user_uuid,
+            "leaderCanvasUserUuids": leader_canvas_user_uuid,
             "metadata": [{"key": field, "value": record.get(field)} for field in ["organization", "department", "team", "role"] if record.get(field)],
         }
         return payload
